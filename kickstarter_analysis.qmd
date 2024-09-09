@@ -1,0 +1,31 @@
+---
+title: "Kickstarter Dataset Analysis"
+format: html
+---
+
+
+# Lets Load the data & clean it
+
+## Load and clean raw dataset
+```{r}
+df_raw = read.csv("data/ks_dataset.csv")
+
+```
+
+Il semble que certaines observations soient décalées dans le jeu de données créant ainsi 4 colonnes quasi vide X à X.3. Nous pourrions prendre le temps de corriger les observations erronés. Le fait étant qu'il y en est peu, j'ai fais le choix de prendre uniquement les observations correctes.
+
+```{r}
+existring_category = as.data.frame(table(df_raw$category)) |>
+    subset(Freq >= 10 )
+
+df = df_raw |>
+    subset(category %in% existring_category$Var1) |>
+    select(-X, -X.1, -X.2, -X.3)
+```
+
+Nous avons maintenant un jeu de données correcte et nous perdons uniquement 632 observations.
+
+## EDA
+```{r}
+skimr::skim(df)
+```
