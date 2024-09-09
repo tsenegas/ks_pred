@@ -3,8 +3,16 @@ title: "Kickstarter Dataset Analysis"
 format: html
 ---
 
+```{r}
+library(tidyverse)
+library(dplyr)
+library(skimr)
+library(lubridate)
+library(highcharter)
+```
 
-# Lets Load the data & clean it
+
+# EDA
 
 ## Load and clean raw dataset
 ```{r}
@@ -25,7 +33,179 @@ df = df_raw |>
 
 Nous avons maintenant un jeu de données correcte et nous perdons uniquement 632 observations.
 
-## EDA
+## Cleaning
+
 ```{r}
+df = df |>
+    mutate(
+        category = factor(category),
+        main_category = factor(main_category),
+        currency = factor(currency),
+        state = factor(state),
+        country = factor(country),
+        deadline = lubridate::ymd_hms(deadline),
+        launched = lubridate::ymd_hms(launched),
+        goal = as.numeric(goal),
+        pledged = as.numeric(pledged),
+        backers = as.numeric(backers),
+        usd.pledged = as.numeric(usd.pledged)
+        )
+
 skimr::skim(df)
+
 ```
+
+Regardons la distribution des projets lancés par années : 
+
+```{r}
+table(lubridate::year(df$launched)) 
+```
+
+Nous voyons 7 projets lancés en 1970 et seulement 1,324 en 2009. Nous allons supprimés ces projets dans le but d'avoir des années complètes.
+
+```{r}
+df = df |>
+    dplyr::filter(!(lubridate::year(launched) %in% c(1970, 2009)))
+```
+
+Regardons une dernière fois si nous avons des valeurs manquantes 
+
+```{r}
+sapply(df, function(x) sum(is.na(x)))
+```
+
+Nous avons une observations avec le 'name' manquant et 234 avec le 'usd.pledged' - Par soucis de simplicité nous allons enlevés ces observations. Nous aurions pu simplement trouvé le taux de change du jour et re-inputer la bonne valeur de usd.pledged.
+
+```{r}
+df = df[complete.cases(df), ]
+```
+
+
+Maintenant nous allons, dans un soucis de facilité re-coder notre variable cible 'state' de manière binaire. Et nous allons par la même occasion supprimer les projets qui sont 'undefined' ou 'live'
+
+```{r}
+df = df |>
+    dplyr::filter(state %in% c("failed", "canceled", "successful", "suspended")) |>
+    mutate(
+        state_binary = factor(ifelse(state == "successful", 1, 0))
+    )
+
+table(df$state_binary)
+```
+
+Nous voyons que sur les 313,569 projets dans notre jeu de données, 112,400 ont été financés soit environ 36%. De ce fait, notre jeu de données n'est pas parfaitement équilibré mais nous n'allons pas le considérer comme "unbalanced" pour autant.
+
+## Data Visualizations
+
+```{r}
+
+plot_success_per_year <- df |>
+    mutate(
+        year_launch = lubridate::year(launched),
+        state_binary = factor(state_binary, levels = c(0, 1), labels = c("Failed", "Success"))
+    ) |>
+     group_by(year_launch, state_binary) |>
+     summarise(n_proj = n()) |>
+    highcharter::hchart('column', hcaes(x = year_launch, y = n_proj, group = state_binary),
+    stacking = 'normal'
+    ) |>
+        hc_colors(c("rgb(155, 20, 20)", "rgba(8, 160, 31, 0.5)")) |>
+        hc_title(text = "Nombre de projets 'successful' et 'failed' par années") |>
+        hc_xAxis(title = list(text = "Année de lancement")) |>
+        hc_yAxis(title = list(text = "Nombre de projets")) 
+ 
+ 
+plot_success_per_year
+```
+
+```{r}
+
+plot_success_percent_per_year <- df |>
+    mutate(
+        year_launch = lubridate::year(launched),
+        state_binary = factor(state_binary, levels = c(0, 1))
+    ) |>
+     group_by(year_launch) |>
+     summarise(succ_rate = round((mean(as.numeric(state_binary) - 1)) * 100)) |>
+    highcharter::hchart('column', hcaes(x = year_launch, y = succ_rate),
+    stacking = 'normal'
+    ) |>
+        hc_title(text = "Taux de réussite par années") |>
+        hc_xAxis(title = list(text = "Année de lancement")) |>
+        hc_yAxis(title = list(text = "Taux réussite (%)")) 
+ 
+ 
+plot_success_percent_per_year
+```
+
+```{r}
+
+plot_usd_invest_per_year <- df |>
+    mutate(
+        year_launch = lubridate::year(launched),
+        state_binary = factor(state_binary, levels = c(0, 1), labels = c("Failed", "Success"))
+    ) |>
+     group_by(year_launch, state_binary) |>
+     summarise(pledged_per_year = round(sum(usd.pledged) / 1000000)) |> 
+    highcharter::hchart('column', hcaes(x = year_launch, y = pledged_per_year, group = state_binary),
+    stacking = 'normal'
+    ) |>
+        hc_colors(c("rgb(155, 20, 20)", "rgba(8, 160, 31, 0.5)")) |>
+        hc_title(text = "Total d'argent investis par années") |>
+        hc_xAxis(title = list(text = "Année de lancement")) |>
+        hc_yAxis(title = list(text = "USD en million")) 
+ 
+plot_usd_invest_per_year
+```
+
+Avec ces 3 visualisations simples nous pouvons voir les choses suivantes :
+- Le nombre de projets déposés sur kickstarter a augmenté pour atteindre son piqu en 2015
+- Cette augmentation ne se traduit pas par un taux de succés stable, au contraire. 
+- Si l'on regarde la somme d'argent investis par années (en millions de USD), en séparant les projets financés et ceux qui échouent, nous pouvons penser que c'est quitte ou double pour un projet. Soit celui-ci est financé totalement soit il recoit très peu d'investissement et il échoue.
+
+Explorons maintenant les category / main_category des projets, leur taux de réussite, ainsi que la durée des projets déposés et le pays dans lequel sont déposés les projets.
+
+```{r}
+
+df <- df |>
+    mutate(
+        duration = deadline - launched
+    )
+```
+
+```{r}
+
+plot_main_category_success <- df |>
+    mutate(
+        year_launch = lubridate::year(launched),
+        state_binary = factor(state_binary, levels = c(0, 1), labels = c("Failed", "Success"))
+    ) |>
+        group_by(main_category, state_binary) |>
+        summarise(n_proj = n()) |>
+        arrange(desc(n_proj))|> 
+        highcharter::hchart('column', hcaes(x = main_category, y = n_proj, group = state_binary),
+    stacking = 'normal'
+    ) |>
+        hc_colors(c("rgb(155, 20, 20)", "rgba(8, 160, 31, 0.5)")) |>
+        hc_title(text = "Total d'argent investis par années") |>
+        hc_xAxis(title = list(text = "Année de lancement")) |>
+        hc_yAxis(title = list(text = "USD en million")) 
+ 
+plot_main_category_success
+```
+
+
+
+
+```{r}
+
+model <- glm(state_binary ~ main_category + country + goal, 
+             data = df, 
+             family = binomial(link = "logit"))
+```
+
+# Improvements
+
+- Look at the time launched (month in particulary) - Check seasonality or stuff like that
+- Dataframe unbalanced (not too much) - possibility to to an undersampling (probably the easiest way there) / oversampling of successfull class possible too
+    - il est préférable d'utiliser des métriques comme le F1-score, le rappel (recall), la précision (precision), ou le AUC-ROC. Accuracy pouvant être biaisé ici.
