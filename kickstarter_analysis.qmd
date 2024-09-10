@@ -1,6 +1,11 @@
 ---
 title: "Kickstarter Dataset Analysis"
-format: html
+format:
+  html:
+    code-fold: true
+    code-summary: "Show the code"
+    warning: false
+    message: false
 ---
 
 ```{r}
@@ -9,6 +14,10 @@ library(dplyr)
 library(skimr)
 library(lubridate)
 library(highcharter)
+library(tidytext)
+library(textdata)
+library(tidymodels)
+library(vip)
 ```
 
 
@@ -158,10 +167,32 @@ plot_usd_invest_per_year <- df |>
 plot_usd_invest_per_year
 ```
 
-Avec ces 3 visualisations simples nous pouvons voir les choses suivantes :
+```{r}
+
+plot_avg_goal_year_usd <- df |>
+    subset(currency == 'USD') |>
+    mutate(
+        year_launch = lubridate::year(launched),
+        state_binary = factor(state_binary, levels = c(0, 1), labels = c("Failed", "Success"))
+    ) |>
+     group_by(year_launch, state_binary) |>
+     summarise(goal_per_year = round(mean(goal))) |> 
+    highcharter::hchart('column', hcaes(x = year_launch, y = goal_per_year, group = state_binary),
+    stacking = 'normal'
+    ) |>
+        hc_colors(c("rgb(155, 20, 20)", "rgba(8, 160, 31, 0.5)")) |>
+        hc_title(text = "Moyenne des Goal des projets (Projets en USD)") |>
+        hc_xAxis(title = list(text = "Année de lancement")) |>
+        hc_yAxis(title = list(text = "USD")) 
+ 
+plot_usd_invest_per_year
+```
+
+Avec ces 4 visualisations simples nous pouvons voir les choses suivantes :
 - Le nombre de projets déposés sur kickstarter a augmenté pour atteindre son piqu en 2015
 - Cette augmentation ne se traduit pas par un taux de succés stable, au contraire. 
 - Si l'on regarde la somme d'argent investis par années (en millions de USD), en séparant les projets financés et ceux qui échouent, nous pouvons penser que c'est quitte ou double pour un projet. Soit celui-ci est financé totalement soit il recoit très peu d'investissement et il échoue.
+- En nous basant uniquement sur les projets en USD, la moyenne pour les projets qui réussisse de l'objectif (en USD) sont nettement inférieur à la moyenne des objectifs (en USD) des projets qui échouent.
 
 Explorons maintenant les category / main_category des projets, leur taux de réussite, ainsi que la durée des projets déposés et le pays dans lequel sont déposés les projets.
 
@@ -212,19 +243,332 @@ plot_duration_success <- df |>
         hc_xAxis(title = list(text = "Durée (jours)")) |>
         hc_yAxis(title = list(text = "nombre projet")) 
  
-plot_main_category_success
+plot_duration_success
+```
+
+```{r}
+
+plot_country_success <- df |>
+    mutate(
+        year_launch = lubridate::year(launched),
+        state_binary = factor(state_binary, levels = c(0, 1), labels = c("Failed", "Success"))
+    ) |>
+        group_by(country, state_binary) |>
+        summarise(n_proj = n()) |>
+        arrange(desc(n_proj))|> 
+        highcharter::hchart('column', hcaes(x = country, y = n_proj, group = state_binary),
+    stacking = 'normal'
+    ) |>
+        hc_colors(c("rgb(155, 20, 20)", "rgba(8, 160, 31, 0.5)")) |>
+        hc_title(text = "Nombre de projets Failed & Succed par pays") |>
+        hc_xAxis(title = list(text = "Pays")) |>
+        hc_yAxis(title = list(text = "nombre projet")) 
+ 
+plot_country_success
+```
+
+```{r}
+
+plot_country_success_perc <- df |>
+    mutate(
+        year_launch = lubridate::year(launched),
+        state_binary = factor(state_binary, levels = c(0, 1), labels = c("Failed", "Success"))
+    ) |>
+        group_by(country, state_binary) |>
+        summarise(n_proj = n()) |>
+        arrange(desc(n_proj))|> 
+        ungroup() |>
+        group_by(country) |>
+        mutate(
+            total_proj = sum(n_proj),
+            perc = n_proj / total_proj * 100
+        ) |>
+            highcharter::hchart('column', hcaes(x = country, y = perc, group = state_binary),
+    stacking = 'normal'
+    ) |>
+        hc_colors(c("rgb(155, 20, 20)", "rgba(8, 160, 31, 0.5)")) |>
+        hc_title(text = "Nombre de projets Failed & Succed par Pays (en %)") |>
+        hc_xAxis(title = list(text = "Pays")) |>
+        hc_yAxis(title = list(text = "")) 
+ 
+plot_country_success_perc
+```
+
+En regardant ces visualisations supplémentaire. La très grande majorité des projets ont une durée de 30j et sont des projets lancés aux US.L'objectif (goal) en USD semble avoir un impact sur le critère de réussite ou d'échec de financement du projet.
+
+## Features selections pour le modèle
+
+- main_category
+- goal
+- duration
+- Nous allons filtrer nos données pour faire un modèle uniquement pour les projets aux États-Unis
+
+Enfin, une variable qui me semble importante à prendre en compte est le nom du projet. Pour prendre cette variable en compte, nous allons calculer un score d'analyse de sentiment que nous incluerons dans notre modèle
+
+# Sentiment Analysis - Name
+```{r}
+df = df |>
+    subset(country == "US")
+```
+
+## AFINN Lexicon
+
+Nous aurions pu utiliser différents lexicon et comparé les résultats. Ici je vais continué avec le AFINN Lexicon
+
+```{r}
+df = df |>
+    subset(country == "US")
+```
+
+```{r}
+df_afinn = df |>
+    tidytext::unnest_tokens(word, name) |>
+    inner_join(tidytext::get_sentiments("afinn"), by = "word") |>
+    group_by(ID) |>
+    mutate(
+        overall_sent = sum(value)
+    ) |>
+    select(ID, overall_sent) |>
+    unique()
+
+df_afinn_clean <- left_join(df, df_afinn, by = "ID")
+
+df_afinn_clean$overall_sent |> is.na() |> sum()
+        
+```
+
+Nous avons donc beaucoup de projets qui ont un score de sentiments NA - Nous allons faire l'hypothèse que ces projets ont donc un sentiments neutre et allons imputer la valeur 0 de sentiments à ceux-ci.
+
+```{r}
+
+df_afinn_clean <- df_afinn_clean %>% 
+  replace_na(list(overall_sent = 0))
+```
+
+Regarons avec un modèle très simple si le score de sentiment du nom d'un projet peut avoir un effet sur la réussite de celui-ci :
+```{r}
+
+summary(glm(state_binary ~ overall_sent, data = df_afinn_clean, family = "binomial"))
+```
+
+Le score de sentiment a un effet significatif ! Le poids de celui-ci est néanmoins très faible. Nous allons tout de même garder cette variable dans notre modèle dans le cas où nous raffinons celui-ci par catégorie ou main_catégorie.
+
+
+# Data Modeling
+
+## Data prep
+Voici les variables que nous allons selectionnés pour notre modèle :
+- main_category
+- goal
+- duration
+- overall_sent
+
+```{r}
+df_model = df_afinn_clean |>
+    select(state_binary, overall_sent, main_category, goal, duration) |>
+    mutate(
+        duration = as.numeric(duration)
+    )
+```
+
+## Data Modelling & Prep
+
+Nous allons commencé en testant un modèle de régression logistique pénalisée. Les avantages de celui-ci sont entre autre les suivants :
+
+- Inclue les techniques Lasso (régularisation L1) et Ridge (régularisation L2)
+- prévention de l'overfitting
+- sélection des variables (lasso)
+- Réduction de la multicolinéarité (Ridge)
+
+
+### Data Splitting & resampling
+
+Ici, plutôt que d'utiliser plusieurs itérations de rééchantillonnage (resampling), nous créeons un seul rééchantillon appelé val_set. Le graphique ci-dessous réprésente notre data splitting & resamplig :
+
+![](validation-split.svg)
+
+
+```{r}
+set.seed(123)
+
+splits <- initial_split(df_model, strata = state_binary)
+
+df_other <- training(splits)
+df_test <- testing(splits)
+
+val_set <- validation_split(df_other, 
+                            strata = state_binary, 
+                            prop = 0.80)
+```
+
+##  penalized logistic regression
+
+```{r}
+lr_mod <- logistic_reg(penalty = tune(), mixture = 1) |>
+    set_engine("glmnet")
+```
+
+ici, on met la mixture à 1 pour avoir le modèle le plus simple possible. On privilégie donc Lasso.
+
+```{r}
+lr_recipe <- 
+  recipe(state_binary ~ ., data = df_other) %>% 
+  step_dummy(all_nominal_predictors()) %>% 
+  step_zv(all_predictors()) %>% 
+  step_normalize(all_predictors())
+
+lr_workflow <- 
+  workflow() %>% 
+  add_model(lr_mod) %>% 
+  add_recipe(lr_recipe)
+```
+
+step_dummy() converts characters or factors (i.e., nominal variables) into one or more numeric binary model terms for the levels of the original data.
+
+step_zv() removes indicator variables that only contain a single unique value (e.g. all zeros). This is important because, for penalized models, the predictors should be centered and scaled.
+
+step_normalize() centers and scales numeric variables.
+
+```{r}
+lr_reg_grid <- tibble(penalty = 10^seq(-4, -1, length.out = 30))
+```
+
+```{r}
+lr_res <- 
+  lr_workflow %>% 
+  tune_grid(val_set,
+            grid = lr_reg_grid,
+            control = control_grid(save_pred = TRUE),
+            metrics = metric_set(roc_auc))
+```
+
+```{r}
+lr_plot <- 
+  lr_res %>% 
+  collect_metrics() %>% 
+  ggplot(aes(x = penalty, y = mean)) + 
+  geom_point() + 
+  geom_line() + 
+  ylab("Area under the ROC Curve") +
+  scale_x_log10(labels = scales::label_number())
+
+lr_plot 
+```
+
+Ce graphique montre que les performances du modèle sont généralement meilleures lorsque les valeurs de pénalité sont plus faibles. Cela suggère que la majorité des prédicteurs sont importants pour le modèle. Étant donné que nous avons choisis peu de variables pour ce modèle, cela fait du sens.
+
+```{r}
+select_best(lr_res, metric = 'roc_auc')
+```
+
+```{r}
+lr_best <- lr_res %>% 
+  collect_metrics() %>% 
+  arrange(penalty) %>% 
+  slice(1)
+
+lr_auc <- lr_res |>
+    collect_predictions(parameters = lr_best) |>
+    roc_curve(state_binary, .pred_0) |>
+    mutate(model = "Logistic Regression")
+```
+
+Le niveau de performance généré par ce modèle de régression logistique est correct, mais pas excellent. La nature linéaire de l'équation de prédiction est peut-être trop restrictive pour cet ensemble de données. Dans une prochaine étape, nous pourrions envisager un modèle hautement non linéaire généré à l'aide d'une méthode d'ensemble basée sur les arbres.
+
+##  tree-based ensemble
+
+Comparons notre premier modèle à un random forest
+
+```{r}
+cores <- parallel::detectCores()
+
+
+rf_mod <- 
+  rand_forest(mtry = tune(), min_n = tune(), trees = 1000) %>% 
+  set_engine("ranger", num.threads = cores/2) %>% 
+  set_mode("classification")
+```
+
+```{r}
+rf_recipe <- 
+  recipe(state_binary ~ ., data = df_other)
+
+rf_workflow <- 
+  workflow() %>% 
+  add_model(rf_mod) %>% 
+  add_recipe(rf_recipe)
+
+set.seed(345)
+rf_res <- 
+  rf_workflow %>% 
+  tune_grid(val_set,
+            grid = 25,
+            control = control_grid(save_pred = TRUE),
+            metrics = metric_set(roc_auc))
+```
+
+```{r}
+rf_best <- 
+  rf_res %>% 
+  select_best(metric = "roc_auc")
+rf_best
+```
+
+## Compare both models using ROC curves 
+
+```{r}
+rf_auc <- 
+  rf_res %>% 
+  collect_predictions(parameters = rf_best) %>% 
+  roc_curve(state_binary, .pred_0) %>% 
+  mutate(model = "Random Forest")
+
+bind_rows(rf_auc, lr_auc) %>% 
+  ggplot(aes(x = 1 - specificity, y = sensitivity, col = model)) + 
+  geom_path(lwd = 1.5, alpha = 0.8) +
+  geom_abline(lty = 3) + 
+  coord_equal() + 
+  scale_color_viridis_d(option = "plasma", end = .6)
+```
+
+The random forest is uniformly better across event probability thresholds.
+
+## Fit the Final Model
+
+```{r}
+# the last model
+last_rf_mod <- 
+  rand_forest(mtry = 1, min_n = 38, trees = 1000) %>% 
+  set_engine("ranger", num.threads = cores / 2, importance = "impurity") %>% 
+  set_mode("classification")
+
+# the last workflow
+last_rf_workflow <- 
+  rf_workflow %>% 
+  update_model(last_rf_mod)
+
+# the last fit
+set.seed(345)
+last_rf_fit <- 
+  last_rf_workflow %>% 
+  last_fit(splits)
+
+last_rf_fit %>% 
+  collect_metrics()
 ```
 
 
 ```{r}
-
-model <- glm(state_binary ~ main_category + country + goal, 
-             data = df, 
-             family = binomial(link = "logit"))
+last_rf_fit %>% 
+  extract_fit_parsnip() %>% 
+  vip(num_features = 10)
 ```
+Nous obtenons donc un modèle avec une accuracy de 66.5% et un ROC AUC de 0.697. Rien d'extraodinaire mais tout de même encourageant pour continuer à explorer et augmenter l'efficacité de notre modèle
 
 # Improvements
 
 - Look at the time launched (month in particulary) - Check seasonality or stuff like that
 - Dataframe unbalanced (not too much) - possibility to to an undersampling (probably the easiest way there) / oversampling of successfull class possible too
     - il est préférable d'utiliser des métriques comme le F1-score, le rappel (recall), la précision (precision), ou le AUC-ROC. Accuracy pouvant être biaisé ici.
+- Faire un modèle par main_category ?
+- Prendre en compte le mois où le projet est lancé et/ou le jour dans le mois ?    
