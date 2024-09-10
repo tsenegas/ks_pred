@@ -1,13 +1,26 @@
 ---
 title: "Kickstarter Dataset Analysis"
+author:
+    - name: Thibault Senegas
+      email: senegas.th@gmail.com
 format:
   html:
     code-fold: true
     code-summary: "Show the code"
+    toc: true
+    toc-location: left
     warning: false
     message: false
 ---
 
+# Executive Summary
+
+Dans le cadre de cette analyse technique en science des données, j'ai choisi d'utiliser et découvrir le nouvel IDE de Posit (anciennement Rstudio). Cet outil novateur offre une intégration fluide entre différents langages de programmation, notamment R et Python. En tant qu'utilisateur principal de R, cette approche m'a permis de réaliser l'analyse de manièere rapide en utilisant R tout en fournissant une version de Python au sein du même projet.
+
+J'ai voulu faire l'analyse du jeu de donnée Kickstarter de manière simple et rapide. La réalisation de l'analyse en R a pris environ 2h30. Dans l'analyse en Python, curieux de voir si je pouvais améliorer mon premier modèle réalisé en R, j'ai décidé de tester directement un modèle lightGBM et sélectionné des variables un peu différentes - la traduction basique du code R en Python ne me semblant pas très intéressante.
+
+
+# Packages for Analysis
 ```{r}
 library(tidyverse)
 library(dplyr)
@@ -29,7 +42,7 @@ df_raw = read.csv("data/ks_dataset.csv")
 
 ```
 
-Il semble que certaines observations soient décalées dans le jeu de données créant ainsi 4 colonnes quasi vide X à X.3. Nous pourrions prendre le temps de corriger les observations erronés. Le fait étant qu'il y en est peu, j'ai fais le choix de prendre uniquement les observations correctes.
+Il apparaît que certaines observations dans le jeu de données sont décalées, générant ainsi quatre colonnes presque vides (X à X.3). Nous pourrions prendre le temps de corriger ces observations, mais étant donné qu'elles sont peu nombreuses, j'ai choisi de ne conserver que les observations correctes.
 
 ```{r}
 existring_category = as.data.frame(table(df_raw$category)) |>
@@ -40,7 +53,7 @@ df = df_raw |>
     select(-X, -X.1, -X.2, -X.3)
 ```
 
-Nous avons maintenant un jeu de données correcte et nous perdons uniquement 632 observations.
+Nous disposons désormais d'un jeu de données propre, avec une perte limitée à seulement 632 observations.
 
 ## Cleaning
 
@@ -64,33 +77,33 @@ skimr::skim(df)
 
 ```
 
-Regardons la distribution des projets lancés par années : 
+Examinons la distribution des projets lancés au fil des années :
 
 ```{r}
 table(lubridate::year(df$launched)) 
 ```
 
-Nous voyons 7 projets lancés en 1970 et seulement 1,324 en 2009. Nous allons supprimés ces projets dans le but d'avoir des années complètes.
+Nous constatons que 7 projets ont été lancés en 1970 et seulement 1 324 en 2009. Nous allons supprimer ces projets afin de travailler avec des années complètes.
 
 ```{r}
 df = df |>
     dplyr::filter(!(lubridate::year(launched) %in% c(1970, 2009)))
 ```
 
-Regardons une dernière fois si nous avons des valeurs manquantes 
+Faisons une dernière vérification pour nous assurer qu'il n'y a pas de valeurs manquantes.
 
 ```{r}
 sapply(df, function(x) sum(is.na(x)))
 ```
 
-Nous avons une observations avec le 'name' manquant et 234 avec le 'usd.pledged' - Par soucis de simplicité nous allons enlevés ces observations. Nous aurions pu simplement trouvé le taux de change du jour et re-inputer la bonne valeur de usd.pledged.
+Nous avons une observation avec un 'name' manquant et 3 790 observations avec un 'usd.pledged' manquant. Par souci de simplicité, nous allons retirer ces observations. Il aurait également été possible de retrouver le taux de change du jour et de réintégrer la valeur correcte pour 'usd.pledged'.
 
 ```{r}
 df = df[complete.cases(df), ]
 ```
 
 
-Maintenant nous allons, dans un soucis de facilité re-coder notre variable cible 'state' de manière binaire. Et nous allons par la même occasion supprimer les projets qui sont 'undefined' ou 'live'
+Pour simplifier l'analyse, nous allons recoder notre variable cible 'state' en une variable binaire. Par la même occasion, nous supprimerons les projets ayant un état 'undefined' ou 'live'.
 
 ```{r}
 df = df |>
@@ -102,7 +115,7 @@ df = df |>
 table(df$state_binary)
 ```
 
-Nous voyons que sur les 313,569 projets dans notre jeu de données, 112,400 ont été financés soit environ 36%. De ce fait, notre jeu de données n'est pas parfaitement équilibré mais nous n'allons pas le considérer comme "unbalanced" pour autant.
+Sur les 313,569 projets dans notre jeu de données, 112,400 ont été financés, ce qui représente environ 36 %. Bien que notre jeu de données ne soit pas parfaitement équilibré, nous allons le garder tel quel.
 
 ## Data Visualizations
 
@@ -195,6 +208,15 @@ Avec ces 4 visualisations simples nous pouvons voir les choses suivantes :
 - En nous basant uniquement sur les projets en USD, la moyenne pour les projets qui réussisse de l'objectif (en USD) sont nettement inférieur à la moyenne des objectifs (en USD) des projets qui échouent.
 
 Explorons maintenant les category / main_category des projets, leur taux de réussite, ainsi que la durée des projets déposés et le pays dans lequel sont déposés les projets.
+
+Avec ces quatre visualisations simples, nous pouvons observer les points suivants :
+
+- Le nombre de projets déposés sur Kickstarter a augmenté, atteignant un pic en 2015.
+- Cette augmentation n'a pas entraîné un taux de succès stable ; au contraire, le taux de succès semble diminuer.
+- En examinant les sommes investies par année (en millions de USD), en distinguant les projets financés de ceux qui échouent, on constate que les projets semblent avoir une issue binaire : soit ils sont complètement financés, soit ils reçoivent très peu d'investissements et échouent.
+- En nous basant uniquement sur les projets en USD, la moyenne des objectifs de financement (en USD) pour les projets ayant réussi est nettement inférieure à la moyenne des objectifs de financement (en USD) des projets ayant échoué.
+
+Explorons maintenant les catégories et sous-catégories des projets, leur taux de réussite, ainsi que la durée des projets et les pays d'origine.
 
 ```{r}
 
@@ -294,7 +316,7 @@ plot_country_success_perc <- df |>
 plot_country_success_perc
 ```
 
-En regardant ces visualisations supplémentaire. La très grande majorité des projets ont une durée de 30j et sont des projets lancés aux US.L'objectif (goal) en USD semble avoir un impact sur le critère de réussite ou d'échec de financement du projet.
+En examinant ces visualisations supplémentaires, nous constatons que la grande majorité des projets ont une durée de 30 jours et sont lancés aux États-Unis. L'objectif de financement (goal) en USD semble avoir un impact significatif sur le critère de réussite ou d'échec du financement du projet.
 
 ## Features selections pour le modèle
 
@@ -303,7 +325,7 @@ En regardant ces visualisations supplémentaire. La très grande majorité des p
 - duration
 - Nous allons filtrer nos données pour faire un modèle uniquement pour les projets aux États-Unis
 
-Enfin, une variable qui me semble importante à prendre en compte est le nom du projet. Pour prendre cette variable en compte, nous allons calculer un score d'analyse de sentiment que nous incluerons dans notre modèle
+Enfin, il semble important de prendre en compte le nom du projet. Nous allons calculer un score d'analyse de sentiment à partir des noms des projets et l'inclure dans notre modèle.
 
 # Sentiment Analysis - Name
 ```{r}
@@ -313,7 +335,7 @@ df = df |>
 
 ## AFINN Lexicon
 
-Nous aurions pu utiliser différents lexicon et comparé les résultats. Ici je vais continué avec le AFINN Lexicon
+Nous aurions pu utiliser différents lexiques et comparer les résultats. Pour l'instant, je vais continuer avec le lexique AFINN.
 
 ```{r}
 df = df |>
@@ -337,7 +359,7 @@ df_afinn_clean$overall_sent |> is.na() |> sum()
         
 ```
 
-Nous avons donc beaucoup de projets qui ont un score de sentiments NA - Nous allons faire l'hypothèse que ces projets ont donc un sentiments neutre et allons imputer la valeur 0 de sentiments à ceux-ci.
+Nous constatons que de nombreux projets ont un score de sentiment manquant (NA). Nous ferons l'hypothèse que ces projets ont un sentiment neutre et nous imputerons une valeur de 0 pour le sentiment à ces projets.
 
 ```{r}
 
@@ -346,17 +368,18 @@ df_afinn_clean <- df_afinn_clean %>%
 ```
 
 Regarons avec un modèle très simple si le score de sentiment du nom d'un projet peut avoir un effet sur la réussite de celui-ci :
+
 ```{r}
 
 summary(glm(state_binary ~ overall_sent, data = df_afinn_clean, family = "binomial"))
 ```
 
-Le score de sentiment a un effet significatif ! Le poids de celui-ci est néanmoins très faible. Nous allons tout de même garder cette variable dans notre modèle dans le cas où nous raffinons celui-ci par catégorie ou main_catégorie.
-
+Le score de sentiment a un effet significatif, bien que son poids soit relativement faible. Nous conserverons tout de même cette variable dans notre modèle, notamment pour d'éventuelles analyses plus approfondies par catégorie ou sous-catégorie.
 
 # Data Modeling
 
 ## Data prep
+
 Voici les variables que nous allons selectionnés pour notre modèle :
 - main_category
 - goal
@@ -373,17 +396,16 @@ df_model = df_afinn_clean |>
 
 ## Data Modelling & Prep
 
-Nous allons commencé en testant un modèle de régression logistique pénalisée. Les avantages de celui-ci sont entre autre les suivants :
+Nous allons commencer par tester un modèle de régression logistique pénalisée. Ce modèle présente plusieurs avantages, notamment :
 
-- Inclue les techniques Lasso (régularisation L1) et Ridge (régularisation L2)
-- prévention de l'overfitting
-- sélection des variables (lasso)
-- Réduction de la multicolinéarité (Ridge)
-
+- Intégration des techniques Lasso (régularisation L1) et Ridge (régularisation L2)
+- Prévention de l'overfitting
+- Sélection des variables (avec Lasso)
+- Réduction de la multicolinéarité (avec Ridge)
 
 ### Data Splitting & resampling
 
-Ici, plutôt que d'utiliser plusieurs itérations de rééchantillonnage (resampling), nous créeons un seul rééchantillon appelé val_set. Le graphique ci-dessous réprésente notre data splitting & resamplig :
+Ici, plutôt que d'utiliser plusieurs itérations de rééchantillonnage, nous avons créé un seul rééchantillon, appelé val_set. Le graphique ci-dessous illustre notre partitionnement des données et notre rééchantillonnage.
 
 ![](validation-split.svg)
 
@@ -408,7 +430,7 @@ lr_mod <- logistic_reg(penalty = tune(), mixture = 1) |>
     set_engine("glmnet")
 ```
 
-ici, on met la mixture à 1 pour avoir le modèle le plus simple possible. On privilégie donc Lasso.
+Ici, nous réglons le paramètre de mixture à 1 pour obtenir le modèle le plus simple possible, en privilégiant ainsi la régularisation Lasso.
 
 ```{r}
 lr_recipe <- 
@@ -423,12 +445,11 @@ lr_workflow <-
   add_recipe(lr_recipe)
 ```
 
-step_dummy() converts characters or factors (i.e., nominal variables) into one or more numeric binary model terms for the levels of the original data.
+- step_dummy(): Convertit les variables catégorielles (caractères ou facteurs) en un ou plusieurs termes binaires numériques représentant chaque niveau des données d'origine.
 
-step_zv() removes indicator variables that only contain a single unique value (e.g. all zeros). This is important because, for penalized models, the predictors should be centered and scaled.
+- step_zv(): Supprime les variables indicatrices qui contiennent uniquement une valeur unique (par exemple, des zéros). Cela est important pour les modèles pénalisés, car les prédicteurs doivent être centrés et mis à l'échelle.
 
-step_normalize() centers and scales numeric variables.
-
+- step_normalize(): Centre et met à l'échelle les variables numériques.
 ```{r}
 lr_reg_grid <- tibble(penalty = 10^seq(-4, -1, length.out = 30))
 ```
@@ -455,7 +476,7 @@ lr_plot <-
 lr_plot 
 ```
 
-Ce graphique montre que les performances du modèle sont généralement meilleures lorsque les valeurs de pénalité sont plus faibles. Cela suggère que la majorité des prédicteurs sont importants pour le modèle. Étant donné que nous avons choisis peu de variables pour ce modèle, cela fait du sens.
+Ce graphique montre que les performances du modèle sont généralement meilleures lorsque les valeurs de pénalité sont plus faibles. Cela suggère que la plupart des prédicteurs sont importants pour le modèle. Étant donné que nous avons sélectionné un nombre limité de variables pour ce modèle, cela semble cohérent.
 
 ```{r}
 select_best(lr_res, metric = 'roc_auc')
@@ -473,11 +494,11 @@ lr_auc <- lr_res |>
     mutate(model = "Logistic Regression")
 ```
 
-Le niveau de performance généré par ce modèle de régression logistique est correct, mais pas excellent. La nature linéaire de l'équation de prédiction est peut-être trop restrictive pour cet ensemble de données. Dans une prochaine étape, nous pourrions envisager un modèle hautement non linéaire généré à l'aide d'une méthode d'ensemble basée sur les arbres.
+Le niveau de performance généré par ce modèle de régression logistique est correct mais pas optimal. La nature linéaire de l'équation de prédiction peut être trop restrictive pour cet ensemble de données. Lors de la prochaine étape, nous pourrions envisager d'utiliser un modèle non linéaire plus complexe, tel qu'une méthode d'ensemble basée sur les arbres.
 
 ##  tree-based ensemble
 
-Comparons notre premier modèle à un random forest
+Comparons notre premier modèle à un random forest.
 
 ```{r}
 cores <- parallel::detectCores()
@@ -531,7 +552,7 @@ bind_rows(rf_auc, lr_auc) %>%
   scale_color_viridis_d(option = "plasma", end = .6)
 ```
 
-The random forest is uniformly better across event probability thresholds.
+La forêt aléatoire est systématiquement meilleure pour tous les seuils de probabilité des événements.
 
 ## Fit the Final Model
 
@@ -563,12 +584,21 @@ last_rf_fit %>%
   extract_fit_parsnip() %>% 
   vip(num_features = 10)
 ```
-Nous obtenons donc un modèle avec une accuracy de 66.5% et un ROC AUC de 0.697. Rien d'extraodinaire mais tout de même encourageant pour continuer à explorer et augmenter l'efficacité de notre modèle
 
-# Improvements
+Nous obtenons donc un modèle avec une précision de 66,5 % et un ROC AUC de 0,697. Bien que ces résultats ne soient pas extraordinaires, ils sont tout de même encourageants pour poursuivre l'exploration et améliorer l'efficacité de notre modèle.
 
-- Look at the time launched (month in particulary) - Check seasonality or stuff like that
-- Dataframe unbalanced (not too much) - possibility to to an undersampling (probably the easiest way there) / oversampling of successfull class possible too
-    - il est préférable d'utiliser des métriques comme le F1-score, le rappel (recall), la précision (precision), ou le AUC-ROC. Accuracy pouvant être biaisé ici.
-- Faire un modèle par main_category ?
-- Prendre en compte le mois où le projet est lancé et/ou le jour dans le mois ?    
+# Améliorations possibles et rapides
+
+- Examiner le mois de lancement (en particulier) pour vérifier la saisonnalité ou d'autres facteurs similaires.
+- Jeu de données déséquilibré (mais pas de manière excessive) : possibilité de faire du sous-échantillonnage (probablement la méthode la plus simple ici) ou du sur-échantillonnage de la classe réussie. Dans ce cas là, il est préférable d'utiliser des métriques telles que le F1-score, le rappel (recall), la précision (precision) ou le AUC-ROC, car l'accuracy peut être biaisée dans ce cas.
+- Envisager de créer un modèle différent par catégorie principale (main_category) ?
+- Prendre en compte le jour du mois où le projet est lancé ?
+- Privilégier Ridge dans le modèle glmnet étant donné que nous avons déjà très peu de variables.
+- Tester divers modèles, notamment XGboost / LightGBM qui permettront probablement d'augmenter l'éfficacité du modèle
+
+
+# Session info 
+
+```{r}
+sessionInfo()
+```
