@@ -169,7 +169,7 @@ Explorons maintenant les category / main_category des projets, leur taux de réu
 
 df <- df |>
     mutate(
-        duration = deadline - launched
+        duration = round(deadline - launched)
     )
 ```
 
@@ -187,14 +187,33 @@ plot_main_category_success <- df |>
     stacking = 'normal'
     ) |>
         hc_colors(c("rgb(155, 20, 20)", "rgba(8, 160, 31, 0.5)")) |>
-        hc_title(text = "Total d'argent investis par années") |>
-        hc_xAxis(title = list(text = "Année de lancement")) |>
-        hc_yAxis(title = list(text = "USD en million")) 
+        hc_title(text = "Nombre de projets Failed & Succed par main_catergory") |>
+        hc_xAxis(title = list(text = "Main Category")) |>
+        hc_yAxis(title = list(text = "nombre projet")) 
  
 plot_main_category_success
 ```
 
+```{r}
 
+plot_duration_success <- df |>
+    mutate(
+        year_launch = lubridate::year(launched),
+        state_binary = factor(state_binary, levels = c(0, 1), labels = c("Failed", "Success"))
+    ) |>
+        group_by(duration, state_binary) |>
+        summarise(n_proj = n()) |>
+        arrange(desc(n_proj))|> 
+        highcharter::hchart('column', hcaes(x = duration, y = n_proj, group = state_binary),
+    stacking = 'normal'
+    ) |>
+        hc_colors(c("rgb(155, 20, 20)", "rgba(8, 160, 31, 0.5)")) |>
+        hc_title(text = "Nombre de projets Failed & Succed par durée") |>
+        hc_xAxis(title = list(text = "Durée (jours)")) |>
+        hc_yAxis(title = list(text = "nombre projet")) 
+ 
+plot_main_category_success
+```
 
 
 ```{r}
